@@ -21,7 +21,7 @@ Getting the zipcodes converted from each census tract requires an API key which 
 ## Streetmaps showing each block groups location and internet access
 
 
-Zoomable, interactive html map with pop up icons for demographic, income, and zip code information of each block group:
+Zoomable, interactive html map with pop up icons for demographic, income, and zip code information of each block group (located in maps folder):
 Blue points represent areas with which less than 20% have broadband subscriptions. Red points represent areas with which more than 20% have no internet access. 
 Purple points represent the intersections of those two groups. 
 ```
