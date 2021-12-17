@@ -1,0 +1,353 @@
+---
+title: "Mapping Variables"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Adjust figure size in doc:
+knitr::opts_chunk$set(fig.width=12, fig.height=8) 
+
+# To reset defaults (if necessary):
+# rm(list = ls())
+```
+
+```{r eval=FALSE}
+# To install packages, change eval=TRUE and run the following:
+install.packages("tidyverse")
+install.packages("tidycensus")
+install.packages("readr")
+install.packages("gridExtra")
+install.packages("sf")
+install.packages("tigris")
+install.packages("janitor")
+install.packages("mapview")
+
+```
+
+
+```{r}
+# Instructions for tidycensus:
+# https://walker-data.com/tidycensus/articles/basic-usage.html
+# Census code lists, definitions, accuracy:
+# https://www.census.gov/programs-surveys/acs/technical-documentation/code-lists.html
+# Census API variables:
+# https://api.census.gov/data/2019/acs/acs1/variables.html
+# https://api.census.gov/data/2010/dec/sf1/variables.html
+
+# Load libraries
+library(tidyverse)
+library(tidycensus)
+library(readr)
+library(gridExtra)
+library(sf)
+library(tigris)
+library(janitor)
+library(mapview)
+
+# API Key:
+api_key <- read_file("api.key")
+census_api_key(api_key)
+```
+
+***
+
+```{r}
+# Variables of interest:
+total_population <- c("B01003_001E")
+# Vacancy status variables:
+vacancy_vars <- c("B25004_001E", "B25004_002E", "B25004_003E", "B25004_004E", 
+                  "B25004_005E", "B25004_006E", "B25004_007E", "B25004_008E",
+                  "B25005_001E", "B25005_002E", "B25005_003E")
+# Internet/Broadband variable:
+# (there are more variables, check out the 2019 acs variables list)
+internet_variables <- c("B28002_001E", "B28002_002E", "B28002_003E",
+                        "B28002_004E", "B28002_005E", "B28002_006E", 
+                        "B28002_007E", "B28002_008E", "B28002_009E", 
+                        "B28002_010E", "B28002_011E", "B28002_012E", 
+                        "B28002_013E")
+internet_variables_noE <- substr(internet_variables, 1, nchar(internet_variables)-1)
+
+# Variables:
+# all_vars <- c(total_population, vacancy_vars, internet_variables)
+all_vars <- c(total_population, internet_variables)
+```
+
+```{r}
+# Get variable descriptions:
+variable_descriptions <- load_variables(2019, "acs5")
+```
+
+
+```{r}
+# Get a dataset:
+the_data <- get_acs(geography="block group", year=2019, state="MA",
+                    variables=all_vars, geometry=TRUE)
+data_against_summary <- get_acs(geography="block group", year=2019, state="MA",
+                    variables=all_vars, geometry=TRUE, summary_var="B01003_001")
+# Only for Suffolk county:
+data_against_summary_suffolk <- get_acs(geography="block group", year=2019, state="MA", county="Suffolk",
+                                variables=all_vars, geometry=TRUE, summary_var="B01003_001")
+
+# Divide estimates by summary:
+data_against_summary$percent <- (data_against_summary$estimate / data_against_summary$summary_est) * 100
+data_against_summary_suffolk$percent <- (data_against_summary_suffolk$estimate / data_against_summary_suffolk$summary_est) * 100
+
+# Save to csv:
+write.csv(the_data, "2019acs_internet_vacancy.csv")
+write.csv(data_against_summary, "2019acs_internet_vacancy_against_summary.csv")
+```
+
+```{r}
+# Merge data with dataset descriptions:
+data_against_summary2 <- merge(data_against_summary, variable_descriptions, by.x="variable", by.y="name", all.x=TRUE)
+```
+
+```{r}
+# Get population by county:
+county_population <- get_acs(geography="county", year=2019, state="MA", variables=total_population)
+```
+
+```{r}
+# Get counties:
+county_vector <- county_population$NAME
+county_vector <- substr(county_vector, 1, nchar(county_vector)-15)
+county_vector
+```
+
+```{r}
+# Geometries:
+the_data$geometry[1]
+
+```
+
+
+
+```{r}
+# ##############################################################################
+# Figure of total population:
+the_data %>% 
+  filter(variable=="B01003_001") %>% 
+  ggplot(aes(fill=estimate)) +
+  geom_sf(color=NA) +
+  coord_sf(crs=4326, expand=FALSE) +
+  # coord_sf(crs=26911, expand=FALSE) +
+  # coord_sf(crs=26911, expand=FALSE, xlim=c(-74, -70), ylim=c(42, 44)) +
+  scale_fill_viridis_c(option = "magma", na.value="white") +
+  ggtitle("Total Population")
+```
+
+```{r}
+# Figure/html of total population:
+total_pop_map <- the_data %>% 
+  filter(variable=="B01003_001") %>% 
+    rename(`Total Population` = estimate) %>% 
+  mapView(zcol="Total Population", na.color="white")
+total_pop_map
+mapshot(total_pop_map, url="total_popmap.html")
+```
+
+
+
+
+```{r}
+# Figure/html of no internet:
+no_internet_map <- data_against_summary %>% 
+  filter(variable=="B28002_013") %>% 
+  rename(`No Internet` = percent) %>% 
+  mapView(zcol="No Internet", na.color="white")
+no_internet_map
+mapshot(no_internet_map, url="nointernet_map.html")
+```
+
+```{r}
+# Figure/html of broadband subscription:
+broadband_sub_map <- data_against_summary %>% 
+  filter(variable=="B28002_004") %>% 
+  rename(`Broadband Subscription` = percent) %>% 
+  mapView(zcol="Broadband Subscription", na.color="white")
+broadband_sub_map
+mapshot(broadband_sub_map, url="broadband_subscript_map.html")
+```
+
+
+```{r}
+# Figure/html of broadband subscription fiberoptic/cable/dsl:
+cable_sub_map <- data_against_summary %>% 
+  filter(variable=="B28002_007") %>% 
+  rename(`Cable/Fiberoptic/DSL` = percent) %>% 
+  mapView(zcol="Cable/Fiberoptic/DSL", na.color="white")
+cable_sub_map
+mapshot(cable_sub_map, url="broadband_CableFiberOpticDSL_map.html")
+```
+
+
+
+```{r}
+#  # ##############################################################################
+#  # For cable: B28002_007E
+#  data_against_summary %>% 
+#    filter(variable=="B28002_007") %>% 
+#    ggplot(aes(fill=percent)) +
+#    geom_sf(color=NA) +
+#    coord_sf(crs=26911) +
+#    scale_fill_viridis_c(option = "magma", na.value="white") +
+#    ggtitle("With Cable/Fiber optic/DSL Broadband subscription")
+```
+
+
+```{r}
+#  # For only the county:
+#  data_against_summary_suffolk %>% 
+#    filter(variable=="B28002_007") %>% 
+#    ggplot(aes(fill=percent)) +
+#    geom_sf(color=NA) +
+#    coord_sf(crs=26911) +
+#    scale_fill_viridis_c(option = "magma", na.value="white") +
+#    ggtitle("With Cable/Fiber optic/DSL Broadband subscription, Suffolk County")
+```
+
+
+```{r}
+#  # ###############################################################################
+#  # No access to internet: B28002_013
+#  data_against_summary_suffolk %>% 
+#    filter(variable=="B28002_013") %>% 
+#    ggplot(aes(fill=percent)) +
+#    geom_sf(color=NA) +
+#    coord_sf(crs=26911) +
+#    scale_fill_viridis_c(option = "magma", na.value="white") +
+#    ggtitle("Without Access to Internet, Suffolk County")
+```
+
+
+```{r}
+#  # No access to internet: B28002_013
+#  data_against_summary %>% 
+#    filter(variable=="B28002_013") %>% 
+#    ggplot(aes(fill=percent)) +
+#    geom_sf(color=NA) +
+#    coord_sf(crs=26911) +
+#    scale_fill_viridis_c(option = "magma", na.value="white") +
+#    ggtitle("Without Access to Internet")
+
+```
+
+
+```{r}
+#  # All internet variables:
+#  data_against_summary2 %>% 
+#    filter(variable!="B01003_001") %>% 
+#    ggplot(aes(fill=percent)) +
+#    geom_sf(color=NA) +
+#    coord_sf(crs=26911) +
+#    scale_fill_viridis_c(option = "magma", na.value="white") +
+#    facet_wrap(~variable, ncol=3)
+```
+
+
+
+```{r, eval=FALSE}
+# Plot internet variables for MA:
+# Image list:
+ma_images <- list()
+
+# Loop to generate images:
+for (the_var in internet_variables_noE){
+  # Get variable description:
+  var_des <- variable_descriptions$label[variable_descriptions$name==the_var]
+  cat("For variable: ", the_var, ": ", var_des, "\n")
+  # Make plot:
+  ma_images[[the_var]] <- data_against_summary %>% 
+  filter(variable==the_var) %>% 
+  ggplot(aes(fill=percent)) +
+  geom_sf(color=NA) +
+  coord_sf(crs=4326) +
+  scale_fill_viridis_c(option = "magma", na.value="white") +
+  ggtitle(paste("Massachusetts\n", var_des, "  \n(", the_var, ")")) +
+  theme(plot.title=element_text(size=12),
+        plot.margin=unit(c(0.25, 0.25, 0.25, 0.25), "in"))
+  # Plot image:
+  print(ma_images[[the_var]])
+}
+```
+
+
+
+***
+
+```{r}
+# # Image list:
+# suffolk_images <- list()
+# 
+# # Loop to generate images:
+# for (the_var in internet_variables_noE){
+#   # Get variable description:
+#   var_des <- variable_descriptions$label[variable_descriptions$name==the_var]
+#   # Make plot:
+#   suffolk_images[[the_var]] <- data_against_summary_suffolk %>% 
+#   filter(variable==the_var) %>% 
+#   ggplot(aes(fill=percent)) +
+#   geom_sf(color=NA) +
+#   coord_sf(crs=26911) +
+#   scale_fill_viridis_c(option = "magma", na.value="white") +
+#   ggtitle(paste("Suffolk County\n", var_des, "  \n(", the_var, ")")) +
+#   theme(plot.title=element_text(size=12),
+#         plot.margin=unit(c(0.25, 0.25, 0.25, 0.25), "in"))
+#   # Plot image:
+#   print(suffolk_images[[the_var]])
+# }
+```
+
+***
+
+```{r, eval=FALSE}
+# Do for all counties:
+# Initialize list to store images:
+county_images = list()
+for (county in county_vector){
+  cat("For county: ", county, "\n")
+  # Get county data:
+  county_data <- get_acs(geography="block group", year=2019, state="MA", county=county,
+                                variables=all_vars, geometry=TRUE, summary_var="B01003_001")
+  # Divide estimates by summary:
+  county_data$percent <- (county_data$estimate / county_data$summary_est) * 100
+  # Initalize list to store images:
+  county_images[[county]] = list()
+  # Loop to generate images:
+  for (the_var in internet_variables_noE){
+    var_des <- variable_descriptions$label[variable_descriptions$name==the_var]
+    cat("For variable: ", the_var, ": ", var_des, "\n")
+    # Make plot:
+    county_images[[county]][[the_var]] <- county_data %>% 
+    filter(variable==the_var) %>% 
+    ggplot(aes(fill=percent)) +
+    geom_sf(color=NA) +
+    coord_sf(crs=4326) +
+    scale_fill_viridis_c(option = "magma", na.value="white") +
+    ggtitle(paste(county, "\n", var_des, "  \n(", the_var, ")")) +
+    theme(plot.title=element_text(size=12),
+          plot.margin=unit(c(0.25, 0.25, 0.25, 0.25), "in"))
+    # Plot image:
+    print(county_images[[county]][[the_var]])
+  }
+  
+}
+
+```
+
+***
+***
+```{r}
+# Generate R citations
+citation("tidyverse")
+citation("tidycensus")
+citation("mapview")
+citation("leaflet")
+```
+
+
+
